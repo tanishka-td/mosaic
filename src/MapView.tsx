@@ -138,7 +138,10 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
     map.addLayer({ id: 'selected-hex-outline', type: 'line', source: 'selected-hex', paint: { 'line-color': '#172b1e', 'line-width': 3.4, 'line-opacity': 1 } }, firstLabelLayer)
     map.on('mouseenter', 'maharashtra-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : 'pointer' })
     map.on('mouseleave', 'maharashtra-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : '' })
-    map.addSource('maharashtra-boundary', { type: 'geojson', data: '/data/maharashtra-boundary.geojson' })
+    map.addSource('maharashtra-boundary', {
+  type: 'geojson',
+  data: `${import.meta.env.VITE_DATA_BASE_URL}/maharashtra-boundary.geojson`,
+})
     map.addLayer({ id: 'maharashtra-boundary-line', type: 'line', source: 'maharashtra-boundary', paint: { 'line-color': '#536e58', 'line-width': 2, 'line-opacity': 0.9 } }, firstLabelLayer)
     const labels = maharashtraLabel.map(([name, lon, lat]) => {
       const element = document.createElement('div')
