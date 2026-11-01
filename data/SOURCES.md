@@ -20,12 +20,12 @@ The relative comparison index ranks Maharashtra cells using population density (
 
 ## Refresh
 
-- `npm.cmd run data:maharashtra-population` retrieves the current Maharashtra outline, WorldPop raster, and business snapshot, then rebuilds browser assets.
-- `npm.cmd run data:maharashtra-businesses` refreshes OSM business counts for Maharashtra only.
-- `npm.cmd run data:maharashtra-boundaries` refreshes boundary data and rebuilds the browser assets from local base data.
-- `npm.cmd run data:maharashtra` regenerates the public grid and state boundary from local source files.
+- `npm run data:maharashtra-population` retrieves the state boundaries, WorldPop raster, and business snapshot, then rebuilds browser assets.
+- `npm run data:maharashtra-businesses` refreshes OSM business counts for Maharashtra only.
+- `npm run data:maharashtra-boundaries` refreshes state boundaries and rebuilds the browser assets from local base data.
+- `npm run data:maharashtra` regenerates the public grid and state boundary from local source files.
 
-Large source downloads and intermediate files live under ignored `data/raw/`; archived Pune prototype inputs live under ignored `data/archive/`. Do not treat failed or unqueried OSM data as a zero business count.
+Large source downloads and intermediate files live under ignored `data/raw/`. Do not treat failed or unqueried OSM data as a zero business count.
 
 ## Source references
 

@@ -27,7 +27,6 @@ type Props = {
   grid: MapGrid | null
   selectedCell: string | null
   onSelect: (cell: MapCell) => void
-  onMapMove?: (zoom: number) => void
   focusLocation: { center: [number, number]; zoom: number; nonce: number } | null
   pinMode: boolean
   pinnedCenter: [number, number] | null
@@ -42,20 +41,18 @@ const basemapStyle = 'https://tiles.openfreemap.org/styles/liberty'
 const emptyGrid: MapGrid = { type: 'FeatureCollection', metadata: {}, features: [] }
 const maharashtraLabel: Array<[string, number, number]> = [['MAHARASHTRA', 76.1, 19.6]]
 
-export default function MapView({ grid, selectedCell, onSelect, onMapMove, focusLocation, pinMode, pinnedCenter, showBusinessLayer, showBoundaries, onPin }: Props) {
+export default function MapView({ grid, selectedCell, onSelect, focusLocation, pinMode, pinnedCenter, showBusinessLayer, showBoundaries, onPin }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const [ready, setReady] = useState(false)
   const [mapError, setMapError] = useState(false)
   const selectRef = useRef(onSelect)
-  const moveRef = useRef(onMapMove)
   const pinRef = useRef(onPin)
   const pinModeRef = useRef(pinMode)
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const gridRef = useRef(grid)
   const selectedRef = useRef<string | null>(null)
   selectRef.current = onSelect
-  moveRef.current = onMapMove
   pinRef.current = onPin
   pinModeRef.current = pinMode
   gridRef.current = grid
@@ -99,7 +96,6 @@ export default function MapView({ grid, selectedCell, onSelect, onMapMove, focus
       setMapError(false)
       setReady(true)
     })
-    map.on('zoomend', () => moveRef.current?.(map.getZoom()))
     map.on('click', event => {
       if (pinModeRef.current) return
       const feature = map.queryRenderedFeatures(event.point, { layers: ['india-hex-fill'] })[0]

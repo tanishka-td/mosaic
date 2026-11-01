@@ -7,11 +7,9 @@ coverage/
 # Local configuration and secrets
 .env
 .env.*
-!.env.example
 
-# Downloaded source data and retained prototype inputs
+# Downloaded source data and intermediate grids
 data/raw/
-data/archive/
 
 # Logs and operating-system files
 *.log
