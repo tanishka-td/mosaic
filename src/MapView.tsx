@@ -124,7 +124,7 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
     map.addLayer({
       id: 'maharashtra-hex-fill', type: 'fill', source: 'maharashtra-hexes',
       paint: {
-        'fill-color': ['case', ['==', ['get', 'businessCoverage'], true], ['interpolate', ['linear'], ['get', 'score'], 0, '#c9d9a9', 40, '#a9c58f', 70, '#f0d28f', 100, '#df9b7c'], ['interpolate', ['linear'], ['get', 'populationDensity'], 0, '#dce6d2', 10, '#c9d9a9', 80, '#a9c58f', 500, '#ead39b', 1500, '#df9b7c']],
+        'fill-color': ['case', ['==', ['get', 'businessCoverage'], true], ['interpolate', ['linear'], ['get', 'score'], 0, '#c9d9a9', 40, '#a9c58f', 70, '#f0d28f', 100, '#df9b7c'], '#d9ddd4'],
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.68, 6, 0.62, 9, 0.48, 12, 0.3, 15, 0.16],
       },
     }, firstLabelLayer)
@@ -134,6 +134,7 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
       'line-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.82, 8, 0.78, 11, 0.64, 14, 0.42],
     } }, firstLabelLayer)
     map.addSource('selected-hex', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+    map.addLayer({ id: 'selected-hex-fill', type: 'fill', source: 'selected-hex', paint: { 'fill-color': '#294a36', 'fill-opacity': 0.16 } }, firstLabelLayer)
     map.addLayer({ id: 'selected-hex-outline', type: 'line', source: 'selected-hex', paint: { 'line-color': '#172b1e', 'line-width': 3.4, 'line-opacity': 1 } }, firstLabelLayer)
     map.on('mouseenter', 'maharashtra-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : 'pointer' })
     map.on('mouseleave', 'maharashtra-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : '' })
