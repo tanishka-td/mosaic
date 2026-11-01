@@ -2,9 +2,14 @@
 
 Mosaic is a location intelligence demo for exploring business opportunity across Maharashtra, India. Choose a business category, search for a place, and compare mapped business activity with modeled population on an interactive H3 hexagon map.
 
-## Live Demo
+## Live Application
 
-Explore Mosaic: https://main.d1i6q84kj6cns5.amplifyapp.com/
+https://main.d1i6q84kj6cns5.amplifyapp.com/
+
+## Data Storage
+
+Processed datasets are stored in Amazon S3 and delivered
+through Amazon CloudFront.
 
 ## Features
 
