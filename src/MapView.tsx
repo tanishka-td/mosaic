@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import * as maplibregl from 'maplibre-gl'
-import type { Map as MapLibreMap } from 'maplibre-gl'
+import { Map as MapLibreMapClass, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource, type Map as MapLibreMap } from 'maplibre-gl'
 
-maplibregl.setWorkerUrl('/maplibre-gl-worker.mjs')
+setWorkerUrl('/maplibre-gl-worker.mjs')
 
 export type MapCell = {
   type: 'Feature'
@@ -35,9 +34,13 @@ type Props = {
   onPin: (center: [number, number]) => void
 }
 
-// OpenFreeMap's Liberty style supplies the streets, localities, and city labels.
-// Rewrite map labels to prefer an English name, then a Latin-script fallback.
+// Keep map labels in English; labels without an English OSM name are omitted.
 const basemapStyle = 'https://tiles.openfreemap.org/styles/liberty'
+const fallbackStyle = {
+  version: 8 as const,
+  sources: {},
+  layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#eaf0e8' } }],
+}
 const emptyGrid: MapGrid = { type: 'FeatureCollection', metadata: {}, features: [] }
 const maharashtraLabel: Array<[string, number, number]> = [['MAHARASHTRA', 76.1, 19.6]]
 
@@ -49,7 +52,7 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
   const selectRef = useRef(onSelect)
   const pinRef = useRef(onPin)
   const pinModeRef = useRef(pinMode)
-  const markerRef = useRef<maplibregl.Marker | null>(null)
+  const markerRef = useRef<Marker | null>(null)
   const gridRef = useRef(grid)
   const selectedRef = useRef<string | null>(null)
   selectRef.current = onSelect
@@ -59,7 +62,7 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-    const map = new maplibregl.Map({
+    const map = new MapLibreMapClass({
       container: containerRef.current,
       style: basemapStyle,
       transformStyle: (_previous, next) => ({
@@ -70,7 +73,7 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
             ...layer,
             layout: {
               ...layer.layout,
-              'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']],
+              'text-field': ['coalesce', ['get', 'name:en'], ''],
             },
           }
         }),
@@ -82,23 +85,28 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
       dragRotate: false, pitchWithRotate: false,
     })
     let styleDidLoad = false
+    let fallbackMode = false
     const basemapTimeout = window.setTimeout(() => {
-      if (!styleDidLoad) setMapError(true)
+      if (!styleDidLoad) {
+        fallbackMode = true
+        setMapError(true)
+        map.setStyle(fallbackStyle)
+      }
     }, 15000)
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
     map.on('style.load', () => {
       styleDidLoad = true
       window.clearTimeout(basemapTimeout)
-      setMapError(false)
+      setMapError(fallbackMode)
     })
     map.on('load', () => {
       window.clearTimeout(basemapTimeout)
-      setMapError(false)
+      setMapError(fallbackMode)
       setReady(true)
     })
     map.on('click', event => {
       if (pinModeRef.current) return
-      const feature = map.queryRenderedFeatures(event.point, { layers: ['india-hex-fill'] })[0]
+      const feature = map.queryRenderedFeatures(event.point, { layers: ['maharashtra-hex-fill'] })[0]
       if (!feature) return
       const h3 = String(feature.properties?.h3 ?? '')
       const selected = (gridRef.current ?? emptyGrid).features.find(cell => cell.id === h3 || cell.properties.h3 === h3)
@@ -110,25 +118,25 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
 
   useEffect(() => {
     const map = mapRef.current
-    if (!ready || !map || map.getSource('india-hexes')) return
-    map.addSource('india-hexes', { type: 'geojson', data: (gridRef.current ?? emptyGrid) as never, promoteId: 'h3', maxzoom: 8, buffer: 16, tolerance: 0.35 })
+    if (!ready || !map || map.getSource('maharashtra-hexes')) return
+    map.addSource('maharashtra-hexes', { type: 'geojson', data: (gridRef.current ?? emptyGrid) as never, promoteId: 'h3', maxzoom: 8, buffer: 16, tolerance: 0.35 })
     const firstLabelLayer = map.getStyle().layers.find(layer => layer.type === 'symbol')?.id
     map.addLayer({
-      id: 'india-hex-fill', type: 'fill', source: 'india-hexes',
+      id: 'maharashtra-hex-fill', type: 'fill', source: 'maharashtra-hexes',
       paint: {
         'fill-color': ['case', ['==', ['get', 'businessCoverage'], true], ['interpolate', ['linear'], ['get', 'score'], 0, '#c9d9a9', 40, '#a9c58f', 70, '#f0d28f', 100, '#df9b7c'], ['interpolate', ['linear'], ['get', 'populationDensity'], 0, '#dce6d2', 10, '#c9d9a9', 80, '#a9c58f', 500, '#ead39b', 1500, '#df9b7c']],
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.68, 6, 0.62, 9, 0.48, 12, 0.3, 15, 0.16],
       },
     }, firstLabelLayer)
-    map.addLayer({ id: 'india-hex-outline', type: 'line', source: 'india-hexes', paint: {
+    map.addLayer({ id: 'maharashtra-hex-outline', type: 'line', source: 'maharashtra-hexes', paint: {
       'line-color': '#fffdf7',
       'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.8, 7, 0.9, 10, 0.75, 14, 0.55],
       'line-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.82, 8, 0.78, 11, 0.64, 14, 0.42],
     } }, firstLabelLayer)
     map.addSource('selected-hex', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
     map.addLayer({ id: 'selected-hex-outline', type: 'line', source: 'selected-hex', paint: { 'line-color': '#172b1e', 'line-width': 3.4, 'line-opacity': 1 } }, firstLabelLayer)
-    map.on('mouseenter', 'india-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : 'pointer' })
-    map.on('mouseleave', 'india-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : '' })
+    map.on('mouseenter', 'maharashtra-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : 'pointer' })
+    map.on('mouseleave', 'maharashtra-hex-fill', () => { map.getCanvas().style.cursor = pinModeRef.current ? 'crosshair' : '' })
     map.addSource('maharashtra-boundary', { type: 'geojson', data: '/data/maharashtra-boundary.geojson' })
     map.addLayer({ id: 'maharashtra-boundary-line', type: 'line', source: 'maharashtra-boundary', paint: { 'line-color': '#536e58', 'line-width': 2, 'line-opacity': 0.9 } }, firstLabelLayer)
     const labels = maharashtraLabel.map(([name, lon, lat]) => {
@@ -136,7 +144,7 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
       element.className = 'map-state-label'
       element.textContent = name
       element.setAttribute('aria-hidden', 'true')
-      return new maplibregl.Marker({ element, anchor: 'center' }).setLngLat([lon, lat]).addTo(map)
+      return new Marker({ element, anchor: 'center' }).setLngLat([lon, lat]).addTo(map)
     })
     map.on('zoom', () => {
       const visible = map.getZoom() < 7.2
@@ -147,24 +155,24 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    const source = map.getSource('india-hexes') as maplibregl.GeoJSONSource | undefined
+    const source = map.getSource('maharashtra-hexes') as GeoJSONSource | undefined
     if (grid) source?.setData(grid as never)
   }, [grid, ready])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    for (const id of ['india-hex-fill', 'india-hex-outline']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showBusinessLayer ? 'visible' : 'none')
+    for (const id of ['maharashtra-hex-fill', 'maharashtra-hex-outline']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showBusinessLayer ? 'visible' : 'none')
     if (map.getLayer('maharashtra-boundary-line')) map.setLayoutProperty('maharashtra-boundary-line', 'visibility', showBoundaries ? 'visible' : 'none')
   }, [showBusinessLayer, showBoundaries, ready])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    if (selectedRef.current) map.setFeatureState({ source: 'india-hexes', id: selectedRef.current }, { selected: false })
-    if (selectedCell) map.setFeatureState({ source: 'india-hexes', id: selectedCell }, { selected: true })
+    if (selectedRef.current) map.setFeatureState({ source: 'maharashtra-hexes', id: selectedRef.current }, { selected: false })
+    if (selectedCell) map.setFeatureState({ source: 'maharashtra-hexes', id: selectedCell }, { selected: true })
     selectedRef.current = selectedCell
-    const selectedSource = map.getSource('selected-hex') as maplibregl.GeoJSONSource | undefined
+    const selectedSource = map.getSource('selected-hex') as GeoJSONSource | undefined
     const feature = selectedCell ? grid?.features.find(cell => cell.id === selectedCell) : undefined
     selectedSource?.setData({ type: 'FeatureCollection', features: feature ? [feature] : [] } as never)
   }, [grid, ready, selectedCell])
@@ -173,7 +181,7 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
     const map = mapRef.current
     if (!map || !ready) return
     if (pinnedCenter) {
-      if (!markerRef.current) markerRef.current = new maplibregl.Marker({ color: '#e06a48' }).setLngLat(pinnedCenter).addTo(map)
+      if (!markerRef.current) markerRef.current = new Marker({ color: '#e06a48' }).setLngLat(pinnedCenter).addTo(map)
       else markerRef.current.setLngLat(pinnedCenter)
     } else if (markerRef.current) {
       markerRef.current.remove()
@@ -195,5 +203,5 @@ export default function MapView({ grid, selectedCell, onSelect, focusLocation, p
     const bounds = event.currentTarget.getBoundingClientRect()
     const point = map.unproject([event.clientX - bounds.left, event.clientY - bounds.top])
     pinRef.current([point.lng, point.lat])
-  }}><div ref={containerRef} className="maplibre-canvas" aria-label="Interactive English-language map of Maharashtra" />{!grid && <div className="map-loading">Loading Maharashtra’s market grid…</div>}{mapError && <div className="map-basemap-error">Street and locality detail needs an internet connection. Mosaic’s market grid is still available.</div>}</div>
+  }}><div ref={containerRef} className="maplibre-canvas" aria-label="Interactive English-language map of Maharashtra" />{!grid && <div className="map-loading">Loading Maharashtra’s market grid…</div>}{mapError && <div className="map-basemap-error">Street map unavailable. Market hexagons remain usable on a plain map.</div>}</div>
 }

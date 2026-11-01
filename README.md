@@ -4,7 +4,7 @@ Mosaic is a location intelligence demo for exploring business opportunity across
 
 ## Features
 
-- Pan and zoom across Maharashtra, with city, locality, and street labels from OpenStreetMap based map tiles.
+- Pan and zoom across Maharashtra, with city, locality, and street labels from OpenStreetMap based map tiles. If the tile service is unavailable, the Maharashtra market grid remains usable on a plain map.
 - Select market hexagons and compare relative opportunity for 60+ business and service categories.
 - Search Maharashtra locations or pin a point on the map.
 - Adjust the analysis radius from 3 km to 150 km; the displayed H3 resolution changes with the radius.
@@ -27,11 +27,13 @@ Create a production build with `npm run build`; preview it with `npm run preview
 
 The committed app data is in `public/data/` and covers Maharashtra only. Population is a modeled WorldPop 2025 estimate. Business counts are mapped OpenStreetMap features retrieved through Overpass; they are not an official or complete business registry. Opportunity scores are relative comparisons within the available data, not sales forecasts. Smaller H3 cells allocate totals from the source grid proportionally and should be treated as estimates.
 
-Street and place labels are loaded from OpenFreeMap vector tiles. Location search uses Photon. Both services require an internet connection and are subject to their availability and data coverage. Attribution and data-source details are in [`data/SOURCES.md`](data/SOURCES.md).
+Street and place labels are loaded from OpenFreeMap vector tiles and need an internet connection. Only features with an English map name are labeled, so some streets and places may be unlabeled. Location search uses Photon when available, with a curated Maharashtra city list as a fallback. Both public services are subject to availability and data coverage. Attribution and data-source details are in [`data/SOURCES.md`](data/SOURCES.md).
+
+Radius totals estimate partial hexagon overlap by sampling one finer H3 level. This avoids counting a whole hexagon just because its center falls inside the radius, but remains an estimate rather than exact circle-polygon clipping.
 
 ## Refreshing the data
 
-The standard app runs from the committed files in `public/data/`; refreshing data is optional. Refresh scripts use the source files in the ignored `data/raw/` directory and may require Python with NumPy and Pillow for raster extraction.
+The standard app runs from the committed files in `public/data/`; refreshing data is optional. The interactive map code loads only when the map approaches the screen. Refresh scripts use the source files in the ignored `data/raw/` directory and may require Python with NumPy and Pillow for raster extraction.
 
 ```sh
 npm run data:maharashtra                 # Rebuild browser files from local source data

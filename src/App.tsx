@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { cellArea, cellToBoundary, cellToChildren, cellToLatLng, cellToParent, latLngToCell } from 'h3-js'
 import { ArrowRight, ChevronDown, CircleHelp, Compass, LocateFixed, MapPin, Search, SlidersHorizontal, Sparkles, Store, Target, X } from 'lucide-react'
 const MapView = lazy(() => import('./MapView'))
@@ -63,6 +63,15 @@ const kmBetween = (a: [number, number], b: [number, number]) => {
   const rad = Math.PI / 180, dLat = (b[1] - a[1]) * rad, dLon = (b[0] - a[0]) * rad
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLon / 2) ** 2
   return 6371 * 2 * Math.asin(Math.sqrt(h))
+}
+const circleCellFraction = (cell: MapCell, center: [number, number], radiusKm: number) => {
+  const sampleCells = cellToChildren(cell.id, Math.min(15, cell.properties.resolution + 2))
+  if (!sampleCells.length) return 0
+  const inside = sampleCells.reduce((count, child) => {
+    const [lat, lon] = cellToLatLng(child)
+    return count + (kmBetween(center, [lon, lat]) <= radiusKm ? 1 : 0)
+  }, 0)
+  return inside / sampleCells.length
 }
 const insideRing = (point: [number, number], ring: number[][]) => {
   const [x, y] = point
@@ -178,6 +187,7 @@ function scoreGrid(base: MapGrid, category: string): MapGrid {
 }
 
 export default function App() {
+  const mapViewportRef = useRef<HTMLDivElement>(null)
   const [category, setCategory] = useState(businessKinds[1].tag)
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -189,6 +199,7 @@ export default function App() {
   const [baseGrid, setBaseGrid] = useState<MapGrid | null>(null)
   const [selected, setSelected] = useState<MapCell | null>(null)
   const [pinnedCenter, setPinnedCenter] = useState<[number, number] | null>(null)
+  const [exploredCenter, setExploredCenter] = useState<[number, number] | null>(null)
   const [focusLocation, setFocusLocation] = useState<{ center: [number, number]; zoom: number; nonce: number } | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
   const [showLayers, setShowLayers] = useState(false)
@@ -197,6 +208,25 @@ export default function App() {
   const [pinMode, setPinMode] = useState(false)
   const [pinError, setPinError] = useState('')
   const [dataError, setDataError] = useState(false)
+  const [mapRequested, setMapRequested] = useState(false)
+
+  useEffect(() => {
+    const target = mapViewportRef.current
+    if (!target || !('IntersectionObserver' in window)) { setMapRequested(true); return }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setMapRequested(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '180px' })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!helpOpen) return
+    scrollHowIntoView()
+  }, [helpOpen])
 
   useEffect(() => {
     fetch('/data/maharashtra-hexes.json').then(response => { if (!response.ok) throw new Error('Maharashtra market grid unavailable'); return response.json() as Promise<MapGrid> }).then(data => {
@@ -227,13 +257,19 @@ export default function App() {
       return !best || kmBetween(center, cell.properties.center) < kmBetween(center, best.properties.center!) ? cell : best
     }, null)
   }, [grid, resolution, selected])
-  const selectedCenter = currentSelected?.properties.center ?? selected?.properties.center ?? null
+  const selectedCenter = exploredCenter ?? currentSelected?.properties.center ?? selected?.properties.center ?? null
   const radiusKm = radii[radiusIndex]
-  const nearby = selectedCenter && grid ? grid.features.filter(cell => cell.properties.center && kmBetween(selectedCenter, cell.properties.center) <= radiusKm) : []
-  const nearbyPopulation = nearby.reduce((sum, cell) => sum + cell.properties.population, 0)
-  const coveredNearby = nearby.filter(cell => cell.properties.businessCoverage === true)
+  const nearby = useMemo(() => {
+    if (!selectedCenter || !grid) return []
+    return grid.features.flatMap(cell => {
+      const fraction = circleCellFraction(cell, selectedCenter, radiusKm)
+      return fraction > 0 ? [{ cell, fraction }] : []
+    })
+  }, [grid, selectedCenter, radiusKm])
+  const nearbyPopulation = nearby.reduce((sum, { cell, fraction }) => sum + cell.properties.population * fraction, 0)
+  const coveredNearby = nearby.filter(({ cell }) => cell.properties.businessCoverage === true)
   const categoryCovered = hasTagCoverage(baseGrid?.metadata, category)
-  const nearbyBusinesses = categoryCovered ? coveredNearby.reduce((sum, cell) => sum + countFor(cell, category), 0) : 0
+  const nearbyBusinesses = categoryCovered ? coveredNearby.reduce((sum, { cell, fraction }) => sum + countFor(cell, category) * fraction, 0) : 0
   const selectedCovered = currentSelected?.properties.businessCoverage === true && categoryCovered
   const score = currentSelected?.properties.score
   const tier = score === undefined ? 'No business coverage' : score > 76 ? 'High relative signal' : score > 52 ? 'Worth exploring' : 'Emerging signal'
@@ -274,10 +310,11 @@ export default function App() {
     setSearchOpen(false)
     setPinMode(false)
     setPinnedCenter(null)
+    setExploredCenter(center)
     setFocusLocation({ center, zoom: radiusFocusZoom[radiusIndex], nonce: Date.now() })
     if (grid) {
       const id = latLngToCell(center[1], center[0], resolution)
-      setSelected(grid.features.find(cell => cell.id === id) ?? grid.features.reduce<MapCell | null>((best, cell) => !cell.properties.center || !best || kmBetween(center, cell.properties.center) < kmBetween(center, best.properties.center!) ? cell : best, null))
+      setSelected(grid.features.find(cell => cell.id === id) ?? null)
     }
   }
 
@@ -291,8 +328,9 @@ export default function App() {
     }
     setPinError('')
     setPinnedCenter(center)
+    setExploredCenter(center)
     setPinMode(false)
-    setSelected(cell ?? grid.features.reduce<MapCell | null>((best, item) => !item.properties.center || !best || kmBetween(center, item.properties.center) < kmBetween(center, best.properties.center!) ? item : best, null))
+    setSelected(cell ?? null)
     setFocusLocation({ center, zoom: radiusFocusZoom[radiusIndex], nonce: Date.now() })
   }
 
@@ -305,7 +343,36 @@ export default function App() {
 
   const handleSelectCell = (cell: MapCell) => {
     setPinnedCenter(null)
+    setExploredCenter(null)
+    setQuery('')
     setSelected(cell)
+  }
+
+  const resetMap = () => {
+    setPinnedCenter(null)
+    setExploredCenter(null)
+    setPinError('')
+    setPinMode(false)
+    setQuery('')
+    setLocationSuggestions([])
+    setSearchOpen(false)
+    const covered = baseGrid?.features.filter(cell => cell.properties.businessCoverage === true) ?? []
+    const discovery = [...(covered.length ? covered : baseGrid?.features ?? [])]
+      .sort((a, b) => b.properties.population / b.properties.areaKm2 - a.properties.population / a.properties.areaKm2)[0]
+    setSelected(discovery ?? null)
+    setFocusLocation({ center: maharashtraCenter, zoom: 5.5, nonce: Date.now() })
+  }
+
+  const scrollHowIntoView = () => {
+    document.getElementById('how')?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'center',
+    })
+  }
+
+  const openHow = () => {
+    if (helpOpen) scrollHowIntoView()
+    else setHelpOpen(true)
   }
 
   useEffect(() => {
@@ -325,7 +392,7 @@ export default function App() {
   return <main className="app-shell">
     <header className="topbar">
       <a className="brand" href="#top" aria-label="Mosaic home"><span className="brand-mark"><i/><i/><i/><i/></span><span>mosaic<span className="brand-period">.</span></span></a>
-      <nav className="top-nav"><a className="active" href="#explore">Explore Maharashtra</a><a href="#how" onClick={event => { event.preventDefault(); setHelpOpen(true) }}>How it works</a></nav>
+      <nav className="top-nav"><a className="active" href="#explore">Explore Maharashtra</a><a href="#how" onClick={event => { event.preventDefault(); openHow() }}>How it works</a></nav>
     </header>
 
     <section className="hero" id="top">
@@ -339,28 +406,28 @@ export default function App() {
           <div className="search-wrap"><Search size={17}/><input id="business-search" value={query} onChange={event => { setQuery(event.target.value); setSearchOpen(true) }} onFocus={() => setSearchOpen(true)} placeholder="Search a Maharashtra city or area" />{query && <button className="clear-search" onClick={() => setQuery('')} aria-label="Clear search"><X size={14}/></button>}
             {searchOpen && query && <div className="suggestions">{displayedSuggestions.length ? displayedSuggestions.map((item, index) => <button key={`${item.label}-${index}`} onClick={() => chooseCoordinates(item.label, item.center)}><MapPin size={15}/>{item.label}</button>) : <div className="no-match">{searchLoading ? 'Searching Maharashtra places…' : 'No matching place. Try a Maharashtra city or pin the map.'}</div>}<div className="search-attribution">Place search: Photon · © OpenStreetMap contributors</div></div>}
           </div>
-          <button className="explore-button" onClick={() => displayedSuggestions[0] && chooseCoordinates(displayedSuggestions[0].label, displayedSuggestions[0].center)}>Explore <ArrowRight size={16}/></button>
+          <button className="explore-button" disabled={!displayedSuggestions.length} onClick={() => displayedSuggestions[0] && chooseCoordinates(displayedSuggestions[0].label, displayedSuggestions[0].center)}>Explore <ArrowRight size={16}/></button>
         </div>
         <div className="quick-picks"><span>Popular</span>{['amenity:cafe','amenity:restaurant','shop:supermarket','shop:clothes'].map(tag => { const kind = businessKinds.find(item => item.tag === tag)!; return <button key={tag} className={category === tag ? 'picked' : ''} onClick={() => setCategory(tag)}>{kind.label}</button> })}</div>
       </div>
     </section>
 
     <section className="discovery" id="explore">
-      <div className="section-heading"><div><div className="eyebrow muted"><span className="pulse"/> MAHARASHTRA · {grid ? `${grid.features.length.toLocaleString('en-IN')} HEXAGONS` : 'LOADING'}</div><h2>Explore the market</h2></div><div className="mode-toggle"><button className="selected" onClick={() => { setPinnedCenter(null); setPinError(''); setPinMode(false); setFocusLocation({ center: maharashtraCenter, zoom: 5.5, nonce: Date.now() }) }}><span className="tiny-hex">⬡</span> Reset map</button><button onClick={togglePinMode} className={pinMode ? 'selected' : ''}><LocateFixed size={14}/>{pinMode ? 'Cancel pin' : 'Pin an area'}</button></div></div>
+      <div className="section-heading"><div><div className="eyebrow muted"><span className="pulse"/> MAHARASHTRA · {grid ? `${grid.features.length.toLocaleString('en-IN')} HEXAGONS` : 'LOADING'}</div><h2>Explore the market</h2></div><div className="mode-toggle"><button className="selected" onClick={resetMap}><span className="tiny-hex">⬡</span> Reset map</button><button onClick={togglePinMode} className={pinMode ? 'selected' : ''}><LocateFixed size={14}/>{pinMode ? 'Cancel pin' : 'Pin an area'}</button></div></div>
       <div className="workspace">
         <div className="map-card map-card-live">
-          <div className="map-topline"><div className="map-location"><span className="india-flag">MH</span><span>{pinError || (pinnedCenter ? 'Pinned location' : currentSelected ? (selectedCovered ? 'Business-covered hexagon' : 'Selected hexagon') : 'Maharashtra')}</span></div><div className="map-controls"><button onClick={() => setShowLayers(!showLayers)} className={showLayers ? 'control-active' : ''}><SlidersHorizontal size={15}/> Layers</button></div></div>
+          <div className="map-topline"><div className="map-location"><span className="region-badge">MH</span><span>{pinError || (pinnedCenter ? 'Pinned location' : currentSelected ? (selectedCovered ? 'Business-covered hexagon' : 'Selected hexagon') : 'Maharashtra')}</span></div><div className="map-controls"><button onClick={() => setShowLayers(!showLayers)} className={showLayers ? 'control-active' : ''}><SlidersHorizontal size={15}/> Layers</button></div></div>
           {showLayers && <div className="layer-menu"><strong>Map layers</strong><label><input type="checkbox" checked={showBusinesses} onChange={event => setShowBusinesses(event.target.checked)}/> Market hexagons</label><label><input type="checkbox" checked={showBoundaries} onChange={event => setShowBoundaries(event.target.checked)}/> Maharashtra boundary and label</label></div>}
-          <div className="map-area map-area-live"><Suspense fallback={<div className="map-loading">Loading Maharashtra’s map…</div>}><MapView grid={grid} selectedCell={currentSelected?.id ?? null} onSelect={handleSelectCell} focusLocation={focusLocation} pinMode={pinMode} pinnedCenter={pinnedCenter} showBusinessLayer={showBusinesses} showBoundaries={showBoundaries} onPin={selectPinnedLocation}/></Suspense><div className="map-chip"><span className="live-dot"/> {selectedCovered ? `${selectedKind.label.toUpperCase()} · RELATIVE INDEX` : 'MAHARASHTRA MARKET GRID'} <span className="demo-tag">{selectedCovered ? 'SOURCED' : 'MAPPED DATA'}</span></div><div className={`map-hint ${pinMode ? 'pin-instruction' : ''}`}>{pinError || (pinMode ? 'Click inside Maharashtra to drop a pin · Esc to cancel' : 'Drag to pan · Scroll to zoom · Click a hexagon to inspect')}</div></div>
-          <div className="map-legend"><span>Lower signal</span><div className="legend-gradient"/><span>Higher signal</span><button title="About this map" onClick={() => setHelpOpen(true)}><CircleHelp size={14}/></button></div>
+          <div ref={mapViewportRef} className="map-area map-area-live">{mapRequested ? <Suspense fallback={<div className="map-loading">Loading Maharashtra’s map…</div>}><MapView grid={grid} selectedCell={currentSelected?.id ?? null} onSelect={handleSelectCell} focusLocation={focusLocation} pinMode={pinMode} pinnedCenter={pinnedCenter} showBusinessLayer={showBusinesses} showBoundaries={showBoundaries} onPin={selectPinnedLocation}/></Suspense> : <div className="map-loading">Interactive market map loads as you explore…</div>}<div className="map-chip"><span className="live-dot"/> {selectedCovered ? `${selectedKind.label.toUpperCase()} · RELATIVE INDEX` : 'MAHARASHTRA MARKET GRID'} <span className="demo-tag">{selectedCovered ? 'SOURCED' : 'MAPPED DATA'}</span></div><div className={`map-hint ${pinMode ? 'pin-instruction' : ''}`}>{pinError || (pinMode ? 'Click inside Maharashtra to drop a pin · Esc to cancel' : 'Drag to pan · Scroll to zoom · Click a hexagon to inspect')}</div></div>
+          <div className="map-legend"><span>Lower signal</span><div className="legend-gradient"/><span>Higher signal</span><button title="About this map" onClick={openHow}><CircleHelp size={14}/></button></div>
         </div>
         <aside className="insight-column">
-          <div key={currentSelected?.id ?? 'none'} className="insight-card featured insight-enter"><div className="card-overline"><span><Sparkles size={13}/> {selectedCovered ? 'MARKET CELL' : 'POPULATION GRID CELL'}</span></div><div className="place-heading"><div><div className="place-name">{currentSelected ? 'Selected area' : 'Choose a hexagon'}</div><div className="place-sub">{selectedKind.label} · {currentSelected ? `H3 resolution ${resolution}` : 'Select a map cell'}</div></div></div><div className="potential-row"><div><span className="potential-value">{selectedCovered ? score : '—'}</span><span className="potential-outof">{selectedCovered ? '/100' : ''}</span></div><span className="potential-pill"><span/> {tier}</span></div><div className="score-track"><span style={{width:`${selectedCovered ? score : 0}%`}}/></div><p className="score-caption">{selectedCovered ? `Relative comparison for ${selectedKind.label.toLowerCase()}: population density (60%) and inverse business density (40%).` : 'Population estimates are available. This area has no verified business coverage, so it is not ranked.'}</p><div className="divider"/><div className="metrics"><div><span className="metric-icon green"><Target size={15}/></span><span className="metric-name">Estimated residents · {radiusKm} km radius</span><strong>{formatCount(nearbyPopulation)}</strong></div><div><span className="metric-icon peach"><Store size={15}/></span><span className="metric-name">Mapped {selectedKind.label.toLowerCase()} · {categoryCovered ? `${coveredNearby.length} covered hexes` : 'category not in source snapshot'}</span><strong>{categoryCovered && coveredNearby.length ? formatCount(nearbyBusinesses) : 'Not sourced here'}</strong></div><div><span className="metric-icon blue"><Compass size={15}/></span><span className="metric-name">Hexagon size · H3 {resolution}</span><strong>{currentSelected ? `${currentSelected.properties.areaKm2.toFixed(1)} km²` : '—'}</strong></div></div><button className="save-button" onClick={() => currentSelected && setFocusLocation({ center: currentSelected.properties.center!, zoom: radiusFocusZoom[radiusIndex], nonce: Date.now() })}>Center selected area <ArrowRight size={15}/></button></div>
+          <div key={currentSelected?.id ?? (pinnedCenter ? 'pin' : query || 'none')} className="insight-card featured insight-enter"><div className="card-overline"><span><Sparkles size={13}/> {selectedCovered ? 'MARKET CELL' : 'POPULATION GRID CELL'}</span></div><div className="place-heading"><div><div className="place-name">{pinnedCenter ? 'Pinned location' : currentSelected ? 'Selected area' : query || 'Choose a hexagon'}</div><div className="place-sub">{selectedKind.label} · {currentSelected ? `H3 resolution ${resolution}` : pinnedCenter ? 'Radius centered on pin' : 'Select a map cell'}</div></div></div><div className="potential-row"><div><span className="potential-value">{selectedCovered ? score : '—'}</span><span className="potential-outof">{selectedCovered ? '/100' : ''}</span></div><span className="potential-pill"><span/> {tier}</span></div><div className="score-track"><span style={{width:`${selectedCovered ? score : 0}%`}}/></div><p className="score-caption">{selectedCovered ? `Relative comparison for ${selectedKind.label.toLowerCase()}: population density (60%) and inverse business density (40%).` : 'Population estimates are available. This area has no verified business coverage, so it is not ranked.'}</p><div className="divider"/><div className="metrics"><div><span className="metric-icon green"><Target size={15}/></span><span className="metric-name">Estimated residents within ~{radiusKm} km</span><strong>{formatCount(nearbyPopulation)}</strong></div><div><span className="metric-icon peach"><Store size={15}/></span><span className="metric-name">Est. {selectedKind.label.toLowerCase()} within ~{radiusKm} km · {categoryCovered ? `${coveredNearby.length} covered hexes` : 'category not in snapshot'}</span><strong>{categoryCovered && coveredNearby.length ? formatCount(nearbyBusinesses) : 'Not sourced here'}</strong></div><div><span className="metric-icon blue"><Compass size={15}/></span><span className="metric-name">Hexagon size · H3 {resolution}</span><strong>{currentSelected ? `${currentSelected.properties.areaKm2.toFixed(1)} km²` : '—'}</strong></div></div><button className="save-button" disabled={!currentSelected} onClick={() => currentSelected && setFocusLocation({ center: currentSelected.properties.center!, zoom: radiusFocusZoom[radiusIndex], nonce: Date.now() })}>Center selected area <ArrowRight size={15}/></button></div>
           <div className="radius-card"><div className="radius-title"><div><strong>Area radius &amp; hex size</strong><span>Adjusts the search area and map detail</span></div><span className="radius-value">{radiusKm} <small>km</small></span></div><input type="range" min="0" max={radii.length - 1} value={radiusIndex} onChange={event => setRadiusIndex(Number(event.target.value))} aria-label="Adjust area radius and hex size"/><div className="range-labels"><span>Local · smaller hexes</span><span>Regional · larger hexes</span></div></div>
         </aside>
       </div>
-      <div className="bottom-note"><span><i className="note-dot"/> DATA NOTE</span><p>{dataError ? 'The Maharashtra market grid could not be loaded.' : 'Population is modeled; business counts reflect OpenStreetMap mapping and may be incomplete.'}</p><button onClick={() => setHelpOpen(!helpOpen)}>How it works <ArrowRight size={14}/></button></div>
-      {helpOpen && <div className="how-panel" id="how"><button onClick={() => setHelpOpen(false)} className="close-how" aria-label="Close"><X size={16}/></button><strong>How Mosaic’s Maharashtra map works</strong><p>The map uses one English-language label set and shows Maharashtra market data only. The radius control also changes H3 resolution: smaller areas show finer hexagons, wider areas use larger hexagons. Fine cells allocate population and business counts proportionally from the source grid, so they are estimates rather than directly observed local counts. Business categories reflect what OpenStreetMap contributors have mapped.</p><p className="how-caveat">Population is modeled. Scores compare mapped business density with estimated population density inside Maharashtra; they are relative signals, not sales forecasts or a complete business census.</p></div>}
+      <div className="bottom-note"><span><i className="note-dot"/> DATA NOTE</span><p>{dataError ? 'The Maharashtra market grid could not be loaded.' : 'Population is modeled; business counts reflect OpenStreetMap mapping and may be incomplete.'}</p><button aria-expanded={helpOpen} aria-controls="how" onClick={() => setHelpOpen(!helpOpen)}>How it works <ArrowRight size={14}/></button></div>
+      {helpOpen && <div className="how-panel" id="how"><button onClick={() => setHelpOpen(false)} className="close-how" aria-label="Close"><X size={16}/></button><strong>How Mosaic’s Maharashtra map works</strong><p>The map uses one English-language label set and shows Maharashtra market data only. The radius control also changes H3 resolution: smaller areas show finer hexagons, wider areas use larger hexagons. Radius totals estimate partial hexagon coverage by sampling finer H3 cells; population and business counts are modeled within each hexagon. Business categories reflect what OpenStreetMap contributors have mapped.</p><p className="how-caveat">Population is modeled. Scores compare mapped business density with estimated population density inside Maharashtra; they are relative signals, not sales forecasts or a complete business census.</p></div>}
     </section>
     
   </main>
