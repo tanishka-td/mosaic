@@ -6,6 +6,13 @@ Mosaic is a location intelligence demo for exploring business opportunity across
 
 https://main.d1i6q84kj6cns5.amplifyapp.com/
 
+## Demo Video
+
+Watch the Mosaic project walkthrough:
+
+[![Mosaic Demo](https://img.youtube.com/vi/MA5hYnL9GU8/maxresdefault.jpg)](https://youtu.be/MA5hYnL9GU8)
+
+
 ## Data Storage
 
 Processed datasets are stored in Amazon S3 and delivered
