@@ -2,6 +2,10 @@
 
 Mosaic is a location intelligence demo for exploring business opportunity across Maharashtra, India. Choose a business category, search for a place, and compare mapped business activity with modeled population on an interactive H3 hexagon map.
 
+## Live Demo
+
+Explore Mosaic: https://main.d1i6q84kj6cns5.amplifyapp.com/
+
 ## Features
 
 - Pan and zoom across Maharashtra, with city, locality, and street labels from OpenStreetMap based map tiles. If the tile service is unavailable, the Maharashtra market grid remains usable on a plain map.
@@ -43,6 +47,27 @@ npm run data:maharashtra-population      # Full population and business data ref
 ```
 
 The full refresh downloads the WorldPop raster and queries public data services. These operations can take time and may be limited by service availability. The business refresh keeps the last complete snapshot if a refresh fails.
+
+## AWS Architecture
+
+Mosaic uses the following AWS services:
+
+- **AWS Amplify:** Hosts the React frontend and automates
+  deployment through GitHub integration.
+- **Amazon S3:** Stores processed geospatial datasets,
+  including Maharashtra's boundary and H3 hexagonal grid.
+- **Amazon CloudFront:** Delivers the datasets to the
+  frontend through a private S3 origin.
+- **Origin Access Control (OAC):** Restricts direct
+  access to the S3 bucket.
+
+### Data Flow
+
+1. Geospatial datasets are processed and stored in Amazon S3.
+2. CloudFront retrieves the datasets from the private S3 origin.
+3. The Mosaic frontend fetches the datasets through CloudFront.
+4. The application visualizes the data using MapLibre GL
+   and H3 geospatial indexing.
 
 ## Repository notes
 
