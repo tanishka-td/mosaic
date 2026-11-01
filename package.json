@@ -1,0 +1,29 @@
+{
+  "name": "mosaic-location-intelligence",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "data:maharashtra": "node scripts/build-maharashtra-grid.mjs",
+    "data:maharashtra-boundaries": "node scripts/fetch-india-boundaries.mjs && node scripts/build-maharashtra-grid.mjs",
+    "data:maharashtra-population": "node scripts/fetch-india-boundaries.mjs && node scripts/fetch-india-population.mjs && python scripts/extract-worldpop-raster.py && node scripts/build-india-population-grid.mjs && node scripts/fetch-india-business-counts.mjs && node scripts/build-maharashtra-grid.mjs",
+    "data:maharashtra-businesses": "node scripts/fetch-india-business-counts.mjs --refresh && node scripts/build-maharashtra-grid.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "h3-js": "^4.5.0",
+    "lucide-react": "^0.468.0",
+    "maplibre-gl": "^6.16.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0"
+  }
+}
